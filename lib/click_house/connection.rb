@@ -35,21 +35,45 @@ module ClickHouse
         config.logger!.warn('since v1.4.0 use connection.get(body: "SELECT 1") instead of connection.get(query: "SELECT 1")')
       end
 
-      transport.get(path) do |conn|
-        conn.params = query.merge(database: database).compact
-        conn.params[:send_progress_in_http_headers] = 1 unless body.empty?
-        conn.body = body
+      with_failover do |transport|
+        transport.get(path) do |conn|
+          conn.params = query.merge(database: database).compact
+          conn.params[:send_progress_in_http_headers] = 1 unless body.empty?
+          conn.body = body
+        end
       end
     end
 
     def post(body = nil, query: {}, database: config.database, params: {})
-      transport.post(compose('/', query.merge(database: database, **params)), body)
+      with_failover do |transport|
+        transport.post(compose('/', query.merge(database: database, **params)), body)
+      end
+    end
+
+    private
+
+    def with_failover
+      last_error = nil
+      config.urls!.each do |url|
+        begin
+          return yield build_transport(url)
+        rescue Faraday::Error => e
+          last_error = e
+          config.logger!.warn("Failed to connect to #{url}: #{e.message}")
+          next
+        end
+      end
+      raise last_error if last_error
     end
 
     # transport should work the same both with Faraday v1 and Faraday v2
     # rubocop:disable Metrics/AbcSize
     def transport
-      @transport ||= Faraday.new(config.url!) do |conn|
+      @transport ||= build_transport(config.url!)
+    end
+
+    def build_transport(url)
+      Faraday.new(url) do |conn|
         conn.options.timeout = config.timeout
         conn.options.open_timeout = config.open_timeout
         conn.headers = config.headers
