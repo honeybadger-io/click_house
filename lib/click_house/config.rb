@@ -6,8 +6,7 @@ module ClickHouse
       adapter: Faraday.default_adapter,
       url: nil,
       scheme: 'http',
-      host: 'localhost',
-      port: '8123',
+      hosts: ['localhost:8123'],
       logger: nil,
       database: nil,
       username: nil,
@@ -38,8 +37,7 @@ module ClickHouse
     attr_accessor :adapter
     attr_accessor :logger
     attr_accessor :scheme
-    attr_accessor :host
-    attr_accessor :port
+    attr_accessor :hosts
     attr_accessor :database
     attr_accessor :url
     attr_accessor :username
@@ -76,8 +74,13 @@ module ClickHouse
       @logger || null_logger
     end
 
+    def urls!
+      return [@url] if @url
+      @hosts.map { |host| "#{scheme}://#{host}" }
+    end
+
     def url!
-      @url || "#{scheme}://#{host}:#{port}"
+      urls!.first
     end
 
     def null_logger
